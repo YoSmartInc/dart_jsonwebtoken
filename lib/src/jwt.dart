@@ -147,6 +147,75 @@ class JWT {
       }
     }
   }
+  
+  
+  /// Decode a token.
+  ///
+  static JWT decode(String token,
+    {bool checkExpiresIn=true,
+    bool checkNotBefore=true}) {
+    try {
+      final parts = token.split('.');
+      final header = jsonBase64.decode(base64Padded(parts[0]));
+
+      if (header == null || header is! Map<String, dynamic>) {
+        throw JWTInvalidError('invalid header');
+      }
+
+      final algorithm = JWTAlgorithm.fromName(header['alg']);
+
+      final body = utf8.encode(parts[0] + '.' + parts[1]);
+      final signature = base64Url.decode(base64Padded(parts[2]));
+
+      dynamic payload;
+
+      try {
+        payload = jsonBase64.decode(base64Padded(parts[1]));
+      } catch (ex) {
+        payload = utf8.decode(base64.decode(base64Padded(parts[1])));
+      }
+
+      if (payload is Map) {
+        // exp
+        if (checkExpiresIn && payload.containsKey('exp')) {
+          final exp = DateTime.fromMillisecondsSinceEpoch(
+            payload['exp'] * 1000,
+          );
+          if (exp.isBefore(DateTime.now())) {
+            throw JWTExpiredError();
+          }
+        }
+
+        // nbf
+        if (checkNotBefore && payload.containsKey('nbf')) {
+          final nbf = DateTime.fromMillisecondsSinceEpoch(
+            payload['nbf'] * 1000,
+          );
+          if (nbf.isAfter(DateTime.now())) {
+            throw JWTNotActiveError();
+          }
+        }
+
+
+        return JWT(
+          payload,
+          header: header,
+          audience: _parseAud(payload.remove('aud')),
+          issuer: payload.remove('iss'),
+          subject: payload.remove('sub'),
+          jwtId: payload.remove('jti'),
+        );
+      } else {
+        return JWT(payload);
+      }
+    } catch (ex) {
+      if (ex is Error) {
+        throw JWTUndefinedError(ex);
+      } else {
+        rethrow;
+      }
+    }
+  }
 
   /// JSON Web Token
   JWT(
